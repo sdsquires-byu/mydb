@@ -48,6 +48,20 @@ func TestExecRejectsNilQueryer(t *testing.T) {
 	}
 }
 
+func TestGetRejectsNilQueryer(t *testing.T) {
+	err := Get(context.Background(), nil, nil, Stmt("select 1"))
+	if err != ErrNilQueryer {
+		t.Fatalf("expected ErrNilQueryer, got %v", err)
+	}
+}
+
+func TestSelectRejectsNilQuereyer(t *testing.T) {
+	err := Select(context.Background(), nil, nil, Stmt("select 1"))
+	if err != ErrNilQueryer {
+		t.Fatalf("expected ErrNilQueryer, got %v", err)
+	}
+}
+
 type recordingQueryer struct {
 	text string
 	args []any

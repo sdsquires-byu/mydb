@@ -66,9 +66,6 @@ func Join(parts ...any) (Statement, error) {
 
 func (i Identifier) sql() (string, error) {
 	parts := strings.Split(i.name, ".")
-	if len(parts) == 0 {
-		return "", fmt.Errorf("%w: %q", ErrInvalidIdentifier, i.name)
-	}
 
 	for _, part := range parts {
 		if !identifierPart.MatchString(part) {

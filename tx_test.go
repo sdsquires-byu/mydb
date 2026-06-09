@@ -27,6 +27,10 @@ func TestNewTxManagerRejectsNilDB(t *testing.T) {
 	}
 }
 
+func TestNewTxManagerReturnsTxManager(t *testing.T) {
+
+}
+
 func TestDoRejectsNilCallback(t *testing.T) {
 	manager := newTestTxManager(t, &fakeTx{})
 

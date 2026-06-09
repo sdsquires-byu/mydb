@@ -71,11 +71,3 @@ err = database.Do(ctx, func(q mydb.Queryer) error {
 	return txUsers.Create(ctx, user)
 })
 ```
-
-## Next Steps
-
-1. Build a small caller-owned `UserStore` that accepts `mydb.Queryer`.
-2. Put user-specific SQL in that store, not in `TxManager`.
-3. Use `txManager.Do` only when several store calls must succeed or fail
-   together.
-4. Keep expanding the query builder only when a real store method needs it.

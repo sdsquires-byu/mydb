@@ -26,6 +26,28 @@ func TestJoinBuildsStatementWithIdentifierAndValue(t *testing.T) {
 	}
 }
 
+func TestJoinBuildStatementWithIdentifierAndStatement(t *testing.T) {
+	stmt, err := Join(
+		"INSERT INTO",
+		Ident("users"),
+		"VALUES",
+		Statement{
+			Text: "('?', ?, '?')",
+			Args: []any{"Seth", 1234, "seth@example.com"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("join: %v", err)
+	}
+
+	if stmt.Text != "INSERT INTO users VALUES ('?', ?, '?')" {
+		t.Fatalf("unexpected SQL: %q", stmt.Text)
+	}
+	if len(stmt.Args) != 3 || stmt.Args[0] != "Seth" || stmt.Args[1] != 1234 || stmt.Args[2] != "seth@example.com" {
+		t.Fatalf("unexpected args: %#v", stmt.Args)
+	}
+}
+
 func TestJoinRejectsUnsafeIdentifier(t *testing.T) {
 	_, err := Join("SELECT * FROM", Ident("users; DROP TABLE users"))
 	if !errors.Is(err, ErrInvalidIdentifier) {
