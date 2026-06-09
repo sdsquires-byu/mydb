@@ -35,6 +35,7 @@ func Exec(ctx context.Context, q Queryer, stmt Statement) (sql.Result, error) {
 		return nil, ErrNilQueryer
 	}
 
+	stmt = rebind(q, stmt)
 	return q.ExecContext(ctx, stmt.Text, stmt.Args...)
 }
 
@@ -44,6 +45,7 @@ func Get(ctx context.Context, q Queryer, dest any, stmt Statement) error {
 		return ErrNilQueryer
 	}
 
+	stmt = rebind(q, stmt)
 	return sqlx.GetContext(ctx, q, dest, stmt.Text, stmt.Args...)
 }
 
@@ -53,5 +55,19 @@ func Select(ctx context.Context, q Queryer, dest any, stmt Statement) error {
 		return ErrNilQueryer
 	}
 
+	stmt = rebind(q, stmt)
 	return sqlx.SelectContext(ctx, q, dest, stmt.Text, stmt.Args...)
+}
+
+type rebindable interface {
+	Rebind(query string) string
+}
+
+func rebind(q Queryer, stmt Statement) Statement {
+	r, ok := q.(rebindable)
+	if !ok {
+		return stmt
+	}
+
+	return Stmt(r.Rebind(stmt.Text), stmt.Args...)
 }

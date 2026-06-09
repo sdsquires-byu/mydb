@@ -59,6 +59,11 @@ func (db *DB) Select(ctx context.Context, dest any, stmt Statement) error {
 	return Select(ctx, db, dest, stmt)
 }
 
+// Rebind changes ? placeholders to the wrapped database driver's bind style.
+func (db *DB) Rebind(query string) string {
+	return db.db.Rebind(query)
+}
+
 // Do runs fn inside a transaction using default transaction options.
 func (db *DB) Do(ctx context.Context, fn func(Queryer) error) error {
 	return db.txManager.Do(ctx, fn)

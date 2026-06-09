@@ -41,6 +41,21 @@ func TestExecUsesStatementTextAndArgs(t *testing.T) {
 	}
 }
 
+func TestExecRebindsStatementWhenQueryerSupportsIt(t *testing.T) {
+	queryer := &rebindingQueryer{}
+	_, err := Exec(context.Background(), queryer, Stmt("select * from widgets where id = ?", 10))
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+
+	if queryer.text != "select * from widgets where id = $1" {
+		t.Fatalf("unexpected rebound query: %q", queryer.text)
+	}
+	if len(queryer.args) != 1 || queryer.args[0] != 10 {
+		t.Fatalf("unexpected args: %#v", queryer.args)
+	}
+}
+
 func TestExecRejectsNilQueryer(t *testing.T) {
 	_, err := Exec(context.Background(), nil, Stmt("select 1"))
 	if err != ErrNilQueryer {
@@ -65,6 +80,18 @@ func TestSelectRejectsNilQuereyer(t *testing.T) {
 type recordingQueryer struct {
 	text string
 	args []any
+}
+
+type rebindingQueryer struct {
+	recordingQueryer
+}
+
+func (q *rebindingQueryer) Rebind(query string) string {
+	if query == "select * from widgets where id = ?" {
+		return "select * from widgets where id = $1"
+	}
+
+	return query
 }
 
 func (q *recordingQueryer) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {

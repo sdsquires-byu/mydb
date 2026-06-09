@@ -33,7 +33,8 @@ stmt := mydb.Stmt("insert into users(name) values (?)", "Alice")
 
 `Exec`, `Get`, and `Select` run a `Statement` through a `Queryer`. `Get` and
 `Select` use `sqlx.GetContext` and `sqlx.SelectContext`, so callers still get
-sqlx struct scanning.
+sqlx struct scanning. If the query runner supports `Rebind`, statements are
+automatically rebound to the driver's placeholder style before execution.
 
 `Join`, `Ident`, and `Value` build query text and args without executing
 anything.
