@@ -8,6 +8,7 @@ transaction manager and a small SQL query builder.
 ```text
 mydb/
   go.mod          module metadata and the sqlx dependency
+  db.go           database wrapper around an existing *sqlx.DB
   query.go        sqlx-backed query contract and statement helpers
   tx.go           sqlx transaction manager
   builder.go      query builder: Join, Ident, Value
@@ -20,6 +21,9 @@ mydb/
 `Queryer` is the contract. It describes the small part of `sqlx` this package
 needs. Both `*sqlx.DB` and `*sqlx.Tx` match it, which lets caller-owned stores
 work outside or inside a transaction.
+
+`DB` is the concrete wrapper. It accepts an existing `*sqlx.DB`, exposes
+statement helpers, implements `Queryer`, and owns a `TxManager`.
 
 `Statement` keeps SQL text and bind arguments together:
 
@@ -34,9 +38,8 @@ sqlx struct scanning.
 `Join`, `Ident`, and `Value` build query text and args without executing
 anything.
 
-`TxManager` owns transaction lifecycle. It starts a `*sqlx.Tx` with
-`db.BeginTxx`, gives the transaction to your callback as a `Queryer`, rolls back
-on callback error, and commits on success.
+`TxManager` owns transaction lifecycle. You can use it directly through
+`database.TxManager()` or use the wrapper shortcut `database.Do(...)`.
 
 ## Using It
 
@@ -44,30 +47,28 @@ The importing application owns connection setup and shutdown. This package only
 uses the `*sqlx.DB` it is given:
 
 ```go
-db, err := sqlx.Connect("postgres", dsn)
-if err != nil {
-	return err
-}
-defer db.Close()
-
-txManager, err := mydb.NewTxManager(db)
-if err != nil {
-	return err
+type UserStore struct {
+	q mydb.Queryer
 }
 
-stmt, err := mydb.Join(
-	"INSERT INTO",
-	mydb.Ident("users"),
-	"(name) VALUES",
-	mydb.Value("Alice"),
-)
+func NewUserStore(q mydb.Queryer) UserStore {
+	return UserStore{q: q}
+}
+
+database, err := mydb.NewDB(sqlxDB)
 if err != nil {
 	return err
 }
 
-err = txManager.Do(ctx, func(q mydb.Queryer) error {
-	_, err := mydb.Exec(ctx, q, stmt)
+users := NewUserStore(database)
+_, err = users.GetByID(ctx, 1245)
+if err != nil {
 	return err
+}
+
+err = database.Do(ctx, func(q mydb.Queryer) error {
+	txUsers := NewUserStore(q)
+	return txUsers.Create(ctx, user)
 })
 ```
 
