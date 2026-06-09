@@ -1,11 +1,14 @@
 package mydb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
 	"errors"
 	"io"
+	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jmoiron/sqlx"
@@ -33,6 +36,103 @@ func TestNewDBWrapsSQLXDB(t *testing.T) {
 	}
 	if db.TxManager() == nil {
 		t.Fatal("expected transaction manager")
+	}
+}
+
+func TestDBQueryLoggingIsDisabledByDefault(t *testing.T) {
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(oldLogger)
+	})
+
+	ctx := context.Background()
+	db, _ := newWrappedTestDB(t, nil)
+
+	_, err := db.Exec(ctx, Stmt("insert into widgets(id) values (?)", 10))
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("expected no logs by default, got %s", logs.String())
+	}
+}
+
+func TestDBQueryLoggingCanBeEnabledAndDisabled(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+
+	ctx := context.Background()
+	db, _ := newWrappedTestDB(t, nil, WithQueryLogging(logger))
+	if db.QueryLogger() != logger {
+		t.Fatal("expected db query logger to be set")
+	}
+	if db.TxManager().QueryLogger() != logger {
+		t.Fatal("expected tx manager query logger to be set")
+	}
+
+	_, err := db.Exec(ctx, Stmt("insert into widgets(id) values (?)", 10))
+	if err != nil {
+		t.Fatalf("exec: %v", err)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		`"msg":"database query"`,
+		`"operation":"exec"`,
+		`"query":"insert into widgets(id) values ($1)"`,
+		`"args":[10]`,
+		`"duration"`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected log output to contain %s, got %s", want, output)
+		}
+	}
+
+	logs.Reset()
+	db.SetQueryLogger(nil)
+	if db.QueryLogger() != nil {
+		t.Fatal("expected db query logger to be disabled")
+	}
+	if db.TxManager().QueryLogger() != nil {
+		t.Fatal("expected tx manager query logger to be disabled")
+	}
+
+	_, err = db.Exec(ctx, Stmt("insert into widgets(id) values (?)", 11))
+	if err != nil {
+		t.Fatalf("exec after disabling logs: %v", err)
+	}
+	if logs.Len() != 0 {
+		t.Fatalf("expected no logs after disabling, got %s", logs.String())
+	}
+}
+
+func TestDBQueryLoggingAppliesInsideTransactions(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+
+	ctx := context.Background()
+	db, _ := newWrappedTestDB(t, nil, WithQueryLogging(logger))
+
+	err := db.Do(ctx, func(q Queryer) error {
+		_, err := q.ExecContext(ctx, "insert into widgets(id) values (?)", 10)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		`"msg":"database query"`,
+		`"operation":"exec"`,
+		`"query":"insert into widgets(id) values (?)"`,
+		`"args":[10]`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected log output to contain %s, got %s", want, output)
+		}
 	}
 }
 
@@ -160,7 +260,7 @@ func TestDBDoTxRollsBackTransaction(t *testing.T) {
 	}
 }
 
-func newWrappedTestDB(t *testing.T, rows [][]driver.Value) (*DB, *testDBState) {
+func newWrappedTestDB(t *testing.T, rows [][]driver.Value, opts ...DBOption) (*DB, *testDBState) {
 	t.Helper()
 
 	state := &testDBState{rows: rows}
@@ -172,7 +272,7 @@ func newWrappedTestDB(t *testing.T, rows [][]driver.Value) (*DB, *testDBState) {
 	})
 
 	sqlxDB := sqlx.NewDb(raw, "postgres")
-	db, err := NewDB(sqlxDB)
+	db, err := NewDB(sqlxDB, opts...)
 	if err != nil {
 		t.Fatalf("new db: %v", err)
 	}

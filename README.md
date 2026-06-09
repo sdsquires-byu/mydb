@@ -42,6 +42,18 @@ anything.
 `TxManager` owns transaction lifecycle. You can use it directly through
 `database.TxManager()` or use the wrapper shortcut `database.Do(...)`.
 
+Query logging is opt-in. When enabled, the package logs the operation, rebound
+query text, args, duration, and error if one occurs:
+
+```go
+database, err := mydb.NewDB(sqlxDB, mydb.WithQueryLogging(slog.Default()))
+if err != nil {
+	return err
+}
+
+database.SetQueryLogger(nil) // disable query logging
+```
+
 ## Using It
 
 The importing application owns connection setup and shutdown. This package only

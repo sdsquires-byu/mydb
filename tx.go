@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -24,15 +25,43 @@ type txStarter interface {
 // TxManager owns BEGIN / COMMIT / ROLLBACK behavior for a unit of work.
 type TxManager struct {
 	starter txStarter
+	logger  *slog.Logger
+}
+
+// TxManagerOption configures a transaction manager.
+type TxManagerOption func(*TxManager)
+
+// WithTxQueryLogging enables query logging for transaction callbacks.
+//
+// If logger is nil, query logging is disabled.
+func WithTxQueryLogging(logger *slog.Logger) TxManagerOption {
+	return func(m *TxManager) {
+		m.SetQueryLogger(logger)
+	}
 }
 
 // NewTxManager creates a transaction manager around a sqlx database.
-func NewTxManager(db *sqlx.DB) (*TxManager, error) {
+func NewTxManager(db *sqlx.DB, opts ...TxManagerOption) (*TxManager, error) {
 	if db == nil {
 		return nil, ErrNilDB
 	}
 
-	return &TxManager{starter: sqlxStarter{db: db}}, nil
+	manager := &TxManager{starter: sqlxStarter{db: db}}
+	for _, opt := range opts {
+		opt(manager)
+	}
+
+	return manager, nil
+}
+
+// SetQueryLogger toggles query logging for transaction callbacks.
+func (m *TxManager) SetQueryLogger(logger *slog.Logger) {
+	m.logger = logger
+}
+
+// QueryLogger returns the logger used for transaction query logging.
+func (m *TxManager) QueryLogger() *slog.Logger {
+	return m.logger
 }
 
 // Do runs fn inside a transaction using default transaction options.
@@ -64,7 +93,12 @@ func (m *TxManager) DoTx(ctx context.Context, opts *sql.TxOptions, fn func(Query
 		}
 	}()
 
-	if err := fn(tx); err != nil {
+	queryer := Queryer(tx)
+	if m.logger != nil {
+		queryer = loggedQueryer{q: tx, logger: m.logger}
+	}
+
+	if err := fn(queryer); err != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
 			return errors.Join(err, rollbackErr)
 		}
@@ -92,10 +126,15 @@ func (f txStarterFunc) beginTx(ctx context.Context, opts *sql.TxOptions) (Tx, er
 	return f(ctx, opts)
 }
 
-func newTxManagerForTest(starter txStarter) (*TxManager, error) {
+func newTxManagerForTest(starter txStarter, opts ...TxManagerOption) (*TxManager, error) {
 	if starter == nil {
 		return nil, ErrNilBeginner
 	}
 
-	return &TxManager{starter: starter}, nil
+	manager := &TxManager{starter: starter}
+	for _, opt := range opts {
+		opt(manager)
+	}
+
+	return manager, nil
 }

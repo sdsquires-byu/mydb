@@ -151,7 +151,7 @@ func main() {
 	}
 	sqlxDB.SetMaxOpenConns(1)
 
-	db, err := mydb.NewDB(sqlxDB)
+	db, err := mydb.NewDB(sqlxDB, mydb.WithQueryLogging(slog.Default()))
 	if err != nil {
 		slog.Error("database wrapping failed", "error:", err)
 		return

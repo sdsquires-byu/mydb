@@ -36,7 +36,18 @@ func Exec(ctx context.Context, q Queryer, stmt Statement) (sql.Result, error) {
 	}
 
 	stmt = rebind(q, stmt)
-	return q.ExecContext(ctx, stmt.Text, stmt.Args...)
+	logger := queryLogger(q)
+	if logger == nil {
+		return q.ExecContext(ctx, stmt.Text, stmt.Args...)
+	}
+
+	var result sql.Result
+	var err error
+	err = logQuery(ctx, logger, "exec", stmt, func(ctx context.Context) error {
+		result, err = q.ExecContext(ctx, stmt.Text, stmt.Args...)
+		return err
+	})
+	return result, err
 }
 
 // Get runs a statement expected to scan exactly one row into dest.
@@ -46,7 +57,14 @@ func Get(ctx context.Context, q Queryer, dest any, stmt Statement) error {
 	}
 
 	stmt = rebind(q, stmt)
-	return sqlx.GetContext(ctx, q, dest, stmt.Text, stmt.Args...)
+	logger := queryLogger(q)
+	if logger == nil {
+		return sqlx.GetContext(ctx, q, dest, stmt.Text, stmt.Args...)
+	}
+
+	return logQuery(ctx, logger, "get", stmt, func(ctx context.Context) error {
+		return sqlx.GetContext(ctx, q, dest, stmt.Text, stmt.Args...)
+	})
 }
 
 // Select runs a statement expected to scan many rows into dest.
@@ -56,7 +74,14 @@ func Select(ctx context.Context, q Queryer, dest any, stmt Statement) error {
 	}
 
 	stmt = rebind(q, stmt)
-	return sqlx.SelectContext(ctx, q, dest, stmt.Text, stmt.Args...)
+	logger := queryLogger(q)
+	if logger == nil {
+		return sqlx.SelectContext(ctx, q, dest, stmt.Text, stmt.Args...)
+	}
+
+	return logQuery(ctx, logger, "select", stmt, func(ctx context.Context) error {
+		return sqlx.SelectContext(ctx, q, dest, stmt.Text, stmt.Args...)
+	})
 }
 
 type rebindable interface {
