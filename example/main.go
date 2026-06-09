@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/sdsquires-byu/mydb"
 	_ "modernc.org/sqlite"
 )
+
+var errRollbackCheck = errors.New("rollback check")
 
 type User struct {
 	ID    int64  `db:"id"`
@@ -64,6 +68,18 @@ func (s UserStore) Create(ctx context.Context, user User) error {
 	return err
 }
 
+func (s UserStore) Exists(ctx context.Context, id int64) (bool, error) {
+	_, err := s.GetByID(ctx, id)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	return false, err
+}
+
 func run(ctx context.Context, db *mydb.DB) error {
 	stmt, err :=
 		mydb.Join(`
@@ -83,7 +99,7 @@ func run(ctx context.Context, db *mydb.DB) error {
 		return err
 	}
 
-	return db.Do(ctx, func(q mydb.Queryer) error {
+	if err := db.Do(ctx, func(q mydb.Queryer) error {
 		txUsers := NewUserStore(q)
 
 		return txUsers.Create(ctx, User{
@@ -91,7 +107,40 @@ func run(ctx context.Context, db *mydb.DB) error {
 			Name:  "Seth Squires",
 			Email: "seth_squires@example.com",
 		})
+	}); err != nil {
+		return err
+	}
+
+	return verifyRollback(ctx, db)
+}
+
+func verifyRollback(ctx context.Context, db *mydb.DB) error {
+	err := db.Do(ctx, func(q mydb.Queryer) error {
+		txUsers := NewUserStore(q)
+		if err := txUsers.Create(ctx, User{
+			ID:    1247,
+			Name:  "Rollback Test",
+			Email: "rollback@example.com",
+		}); err != nil {
+			return err
+		}
+
+		return errRollbackCheck
 	})
+	if !errors.Is(err, errRollbackCheck) {
+		return err
+	}
+
+	users := NewUserStore(db)
+	exists, err := users.Exists(ctx, 1247)
+	if err != nil {
+		return err
+	}
+	if exists {
+		return errors.New("rollback verification failed: user 1247 still exists")
+	}
+
+	return nil
 }
 
 func main() {
@@ -100,9 +149,13 @@ func main() {
 		slog.Error("oh no", "oh no", err)
 		return
 	}
+	sqlxDB.SetMaxOpenConns(1)
 
 	db, err := mydb.NewDB(sqlxDB)
-
+	if err != nil {
+		slog.Error("database wrapping failed", "error:", err)
+		return
+	}
 	err = run(context.Background(), db)
 	if err != nil {
 		slog.Error("running failed", "error:", err)
