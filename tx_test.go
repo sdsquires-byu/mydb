@@ -156,6 +156,28 @@ func TestDoJoinsCallbackAndRollbackErrors(t *testing.T) {
 	}
 }
 
+func TestDoRollsBackOnPanic(t *testing.T) {
+	tx := &fakeTx{}
+	manager := newTestTxManager(t, tx)
+
+	defer func() {
+		p := recover()
+		if p != "callback panicked" {
+			t.Fatalf("expected callback panic, got %v", p)
+		}
+		if !tx.rolledBack {
+			t.Fatal("expected transaction to rollback")
+		}
+		if tx.committed {
+			t.Fatal("did not expect transaction to commit")
+		}
+	}()
+
+	_ = manager.Do(context.Background(), func(Queryer) error {
+		panic("callback panicked")
+	})
+}
+
 func newTestTxManager(t *testing.T, tx Tx) *TxManager {
 	t.Helper()
 
